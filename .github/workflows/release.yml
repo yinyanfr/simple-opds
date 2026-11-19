@@ -1,0 +1,129 @@
+name: Build and release APK
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      version: ${{ steps.apk.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Install Android SDK packages
+        run: sdkmanager 'platforms;android-34' 'build-tools;36.0.0'
+
+      - name: Run tests and lint, then build
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+
+      - name: Read the APK version
+        id: apk
+        shell: bash
+        run: |
+          aapt="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          metadata=$("$aapt" dump badging app/build/outputs/apk/release/app-release-unsigned.apk)
+          version=$(sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" <<< "$metadata")
+          [[ "$version" =~ ^[0-9][A-Za-z0-9._-]*$ ]]
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-apk
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: simple-opds-release
+      queue: max
+    permissions:
+      contents: write
+    env:
+      APK_VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: unsigned-apk
+
+      - name: Install Android build tools
+        run: sdkmanager 'build-tools;36.0.0'
+
+      - name: Sign and verify the APK
+        shell: bash
+        env:
+          APK_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          APK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [[ -z "$APK_KEYSTORE_BASE64" || -z "$APK_KEYSTORE_PASSWORD" ]]; then
+            echo "::error::Configure ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD in repository Actions secrets."
+            exit 1
+          fi
+
+          umask 077
+          keystore=$(mktemp "$RUNNER_TEMP/simple-opds-signing.XXXXXX")
+          trap 'rm -f "$keystore"' EXIT
+          printf '%s' "$APK_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          "$apksigner" sign --ks "$keystore" --ks-type PKCS12 --ks-key-alias simple-opds \
+            --ks-pass env:APK_KEYSTORE_PASSWORD --key-pass env:APK_KEYSTORE_PASSWORD \
+            --v4-signing-enabled false --out signed.apk app-release-unsigned.apk
+          "$apksigner" verify --min-sdk-version 21 --verbose signed.apk
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${APK_VERSION}"
+          title="Simple OPDS $version"
+          tag_error=$(mktemp "$RUNNER_TEMP/simple-opds-tag.XXXXXX")
+          trap 'rm -f "$tag_error"' EXIT
+          if tag_commit=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" --jq '.object.sha' 2>"$tag_error"); then
+            if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+              version="$version-build.$GITHUB_RUN_NUMBER"
+              title="$title (build $GITHUB_RUN_NUMBER)"
+            fi
+          elif ! grep -Fq 'HTTP 404' "$tag_error"; then
+            cat "$tag_error" >&2
+            exit 1
+          fi
+
+          tag="v$version"
+          apk="simple-opds-$version.apk"
+          mv signed.apk "$apk"
+
+          if release=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets,isDraft 2>/dev/null); then
+            if ! jq -e --arg apk "$apk" 'any(.assets[]; .name == $apk)' <<< "$release" > /dev/null; then
+              gh release upload "$tag" "$apk" --repo "$GITHUB_REPOSITORY"
+            fi
+            if jq -e '.isDraft' <<< "$release" > /dev/null; then
+              gh release edit "$tag" --draft=false --repo "$GITHUB_REPOSITORY"
+            fi
+          else
+            gh release create "$tag" "$apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "$title" --generate-notes
+          fi

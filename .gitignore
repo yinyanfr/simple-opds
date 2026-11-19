@@ -33,3 +33,8 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# macOS and local build cache
+.DS_Store
+.gradle-user-home/
+*.p12

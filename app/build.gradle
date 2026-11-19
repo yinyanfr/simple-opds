@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    enableKotlin = false
+    namespace = 'io.github.einkopds'
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = 'io.github.einkopds'
+        minSdk = 21
+        targetSdk = 34
+        versionCode = 1
+        versionName = '1.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+        }
+    }
+
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'
+            systemProperty 'maven.repo.local',
+                    new File(gradle.gradleUserHomeDir, 'caches/simple-opds-robolectric').absolutePath
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+}
