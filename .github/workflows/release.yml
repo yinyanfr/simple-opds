@@ -25,7 +25,8 @@ jobs:
           cache: gradle
 
       - name: Install Android SDK packages
-        run: sdkmanager 'platforms;android-34' 'build-tools;36.0.0'
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-34' 'build-tools;36.0.0'
 
       - name: Run tests and lint, then build
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
@@ -69,7 +70,8 @@ jobs:
           name: unsigned-apk
 
       - name: Install Android build tools
-        run: sdkmanager 'build-tools;36.0.0'
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;36.0.0'
 
       - name: Sign and verify the APK
         shell: bash
