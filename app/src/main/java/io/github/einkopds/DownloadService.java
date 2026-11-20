@@ -14,6 +14,8 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 
+import java.net.Proxy;
+
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -31,13 +33,14 @@ public final class DownloadService extends Service {
         final LibraryStore.Source source;
         final FeedReader.Link link;
         final String title;
-        final Http.Call call = new Http.Call();
+        final Http.Call call;
 
-        Job(Uri folder, LibraryStore.Source source, FeedReader.Link link, String title) {
+        Job(Uri folder, LibraryStore.Source source, FeedReader.Link link, String title, Proxy proxy) {
             this.folder = folder;
             this.source = source;
             this.link = link;
             this.title = title;
+            call = new Http.Call(proxy);
         }
     }
 
@@ -158,6 +161,7 @@ public final class DownloadService extends Service {
     }
 
     private Notification notification(String title) {
+        Context localized = AppLanguage.localizedContext(this);
         Intent open = new Intent(this, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent view = PendingIntent.getActivity(this, 0, open,
@@ -168,20 +172,20 @@ public final class DownloadService extends Service {
         Notification.Builder builder;
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            manager.createNotificationChannel(new NotificationChannel(CHANNEL, getString(R.string.download_channel),
+            manager.createNotificationChannel(new NotificationChannel(CHANNEL, localized.getString(R.string.download_channel),
                     NotificationManager.IMPORTANCE_LOW));
             builder = new Notification.Builder(this, CHANNEL);
         } else {
             builder = new Notification.Builder(this).setPriority(Notification.PRIORITY_LOW);
         }
         return builder.setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle(getString(R.string.download_notification))
+                .setContentTitle(localized.getString(R.string.download_notification))
                 .setContentText(title)
                 .setContentIntent(view)
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setOnlyAlertOnce(true)
-                .addAction(0, getString(R.string.cancel_download), stop)
+                .addAction(R.drawable.ic_close, localized.getString(R.string.cancel_download), stop)
                 .build();
     }
 

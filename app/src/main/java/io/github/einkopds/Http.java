@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
+import java.net.Proxy;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -31,8 +32,17 @@ final class Http {
     }
 
     static final class Call {
+        private final Proxy proxy;
         private volatile boolean cancelled;
         private volatile HttpURLConnection active;
+
+        Call() {
+            this(null);
+        }
+
+        Call(Proxy proxy) {
+            this.proxy = proxy;
+        }
 
         void cancel() {
             cancelled = true;
@@ -127,7 +137,8 @@ final class Http {
         URL origin = address(source.address);
         for (int redirects = 0; redirects <= 8; redirects++) {
             call.check();
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            HttpURLConnection connection = (HttpURLConnection) (call.proxy == null
+                    ? url.openConnection() : url.openConnection(call.proxy));
             call.active = connection;
             boolean keep = false;
             try {
@@ -163,6 +174,7 @@ final class Http {
                 if (status == 401) throw new Failure(R.string.error_login_required);
                 if (status == 403) throw new Failure(R.string.error_http_forbidden);
                 if (status == 404) throw new Failure(R.string.error_http_not_found);
+                if (status == 407) throw new Failure(R.string.error_proxy_auth_required);
                 throw new Failure(R.string.error_http_status, status);
             } finally {
                 if (!keep) {

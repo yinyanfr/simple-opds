@@ -88,4 +88,19 @@
     <string name="error_file_create">保存先にファイルを作成できません。</string>
     <string name="error_file_rename">保存先で最終ファイル名に変更できません。</string>
     <string name="error_previous_cleanup">前回の一時ファイルを削除できません。保存先を選び直してください。</string>
+
+    <string name="settings">設定</string>
+    <string name="language">アプリの言語</string>
+    <string name="language_system">システムの言語</string>
+    <string name="network_proxy">ネットワークプロキシ</string>
+    <string name="proxy_system">システムのプロキシ</string>
+    <string name="proxy_direct">直接接続</string>
+    <string name="proxy_http">HTTP プロキシ</string>
+    <string name="proxy_socks">SOCKS プロキシ</string>
+    <string name="proxy_host">プロキシのホスト</string>
+    <string name="proxy_port">プロキシのポート</string>
+    <string name="error_proxy_host">ホスト名または IP アドレスを入力してください。スキームやポートは省略してください。</string>
+    <string name="error_proxy_port">1～65535 のポート番号を入力してください。</string>
+    <string name="error_proxy_auth_required">プロキシ認証が必要です（HTTP 407）。</string>
+    <string name="sample_format">%1$s の試し読み</string>
 </resources>

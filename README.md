@@ -22,7 +22,7 @@ Simple OPDS runs on Android 5.0 (API 21) and later, including older 32-bit ARM E
 
 The app uses native Java views, with black text and dividers on white. Catalog pages are parsed as streams, recent pages are cached with a memory limit, and books are written through a fixed-size buffer. The APK has no third-party runtime libraries or native binaries.
 
-The interface is available in English, Simplified Chinese, and Japanese. It follows the system language by default, with English as the fallback. On Android 13 or later, change it for Simple OPDS in the system app-language settings.
+The interface is available in English, Simplified Chinese, and Japanese. It follows the system language by default, with English as the fallback. Open the gear icon on the home screen to choose an app language.
 
 ## Install
 
@@ -30,12 +30,16 @@ Download the signed APK from [GitHub Releases](https://github.com/yinyanfr/simpl
 
 ## Browse and download
 
-1. Tap **Add catalog (新增书库)** and enter the full OPDS URL. Enter a username and password for catalogs using HTTP Basic authentication. The app supports OPDS 1.x and 2.0 over HTTPS or HTTP. Use HTTPS for credentials whenever the catalog supports it.
+1. Tap the **+** icon to add a catalog and enter the full OPDS URL. Enter a username and password for catalogs using HTTP Basic authentication. The app supports OPDS 1.x and 2.0 over HTTPS or HTTP. Use HTTPS for credentials whenever the catalog supports it.
 2. Open a catalog and tap a book to see its available formats. Search and next-page buttons appear when the catalog advertises them. Volume and Page Up/Down keys scroll the list. At the bottom, Page Down or Volume Down opens the next catalog page when available.
-3. Tap a format to download it. Choose a folder on the first download, or set it ahead of time under **Download folder (下载目录)**. On Android 11, select a subfolder such as `Documents/Books`. Android restricts selecting the storage root or the `Download` root itself.
+3. Tap a format to download it. Choose a folder on the first download, or set it ahead of time with the **folder** icon. On Android 11, select a subfolder such as `Documents/Books`. Android restricts selecting the storage root or the `Download` root itself.
 4. Downloads continue after you leave the app. You can cancel from the download status row. Downloading a book with an existing filename saves a separate copy.
 
 Available formats depend on the catalog. Direct EPUB, PDF, MOBI, TXT and sample links are supported. Store checkout, loan flows and DRM license links require their own client.
+
+## Network proxy
+
+On the home screen, open the gear icon and select **Network proxy**. Choose **System proxy**, **Direct connection**, **HTTP proxy**, or **SOCKS proxy**. For a manual proxy, enter its host and port. The choice applies to catalog browsing, search, and new downloads. Manual proxies accept endpoints that do not require proxy authentication.
 
 ## Build and test
 

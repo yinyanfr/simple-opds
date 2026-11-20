@@ -3,6 +3,7 @@ package io.github.einkopds;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.ActivityNotFoundException;
+import android.content.Context;
 import android.content.Intent;
 import android.content.UriPermission;
 import android.content.res.ColorStateList;
@@ -30,11 +31,14 @@ import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.widget.AbsListView;
 import android.widget.BaseAdapter;
-import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -119,27 +123,36 @@ public final class MainActivity extends Activity implements DownloadService.Obse
     private FeedReader.Page page;
     private FeedReader.Entry book;
     private boolean managing;
+    private boolean settings;
+    private NetworkProxy proxy;
     private Http.Call request;
     private UiMessage loadError;
     private PendingBook pending;
 
     private TextView title;
-    private Button back;
-    private Button manage;
+    private ImageButton back;
+    private ImageButton manage;
+    private ImageButton settingsButton;
     private ListView list;
     private TextView empty;
     private LinearLayout footerPanel;
     private LinearLayout actions;
     private LinearLayout statusPanel;
     private TextView status;
-    private Button statusAction;
+    private ImageButton statusAction;
     private String notice = "";
     private boolean statusRunning;
 
+    @Override protected void attachBaseContext(Context base) {
+        super.attachBaseContext(AppLanguage.localizedContext(base));
+    }
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        AppLanguage.migrateLegacyPreference(this);
         configureWindow();
         library = new LibraryStore(this);
+        proxy = NetworkProxy.load(this);
         buildUi();
         if (state != null) restore(state);
         if (screen() == null) render();
@@ -182,6 +195,7 @@ public final class MainActivity extends Activity implements DownloadService.Obse
             state.putParcelableArrayList("screens", saved);
         }
         state.putBoolean("managing", managing);
+        state.putBoolean("settings", settings);
         if (pending != null) {
             Bundle download = new Bundle();
             download.putString("source", pending.source.id);
@@ -199,7 +213,8 @@ public final class MainActivity extends Activity implements DownloadService.Obse
             ArrayList<Bundle> saved = state.getParcelableArrayList("screens");
             if (saved != null) for (Bundle entry : saved) screens.add(Screen.restore(entry));
         }
-        managing = source == null && state.getBoolean("managing");
+        settings = source == null && state.getBoolean("settings");
+        managing = source == null && !settings && state.getBoolean("managing");
         Bundle download = state.getBundle("download");
         if (download != null) {
             LibraryStore.Source owner = library.find(download.getString("source"));
@@ -218,7 +233,7 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         LinearLayout header = row();
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(12), dp(6), dp(12), dp(6));
-        back = button(getString(R.string.back), this::onBackPressed);
+        back = button(R.drawable.ic_back, R.string.back, this::onBackPressed);
         LinearLayout.LayoutParams backPosition = new LinearLayout.LayoutParams(WRAP, WRAP);
         backPosition.rightMargin = dp(10);
         header.addView(back, backPosition);
@@ -228,13 +243,20 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         title.setEllipsize(TextUtils.TruncateAt.END);
         if (Build.VERSION.SDK_INT >= 28) title.setAccessibilityHeading(true);
         header.addView(title, new LinearLayout.LayoutParams(0, WRAP, 1));
-        manage = button(getString(R.string.manage), () -> {
+        manage = button(R.drawable.ic_manage, R.string.manage, () -> {
             managing = true;
             render();
         });
         LinearLayout.LayoutParams managePosition = new LinearLayout.LayoutParams(WRAP, WRAP);
         managePosition.leftMargin = dp(10);
         header.addView(manage, managePosition);
+        settingsButton = button(R.drawable.ic_settings, R.string.settings, () -> {
+            settings = true;
+            render();
+        });
+        LinearLayout.LayoutParams settingsPosition = new LinearLayout.LayoutParams(WRAP, WRAP);
+        settingsPosition.leftMargin = dp(8);
+        header.addView(settingsButton, settingsPosition);
         header.setMinimumHeight(dp(60));
         root.addView(header, new LinearLayout.LayoutParams(MATCH, WRAP));
         rule(root);
@@ -250,7 +272,7 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         list.setSelector(outlineStates(false));
         list.setOnItemClickListener((parent, view, position, id) -> select(position));
         list.setOnItemLongClickListener((parent, view, position, id) -> {
-            if (screen() != null || managing) return false;
+            if (screen() != null || managing || settings) return false;
             editSource(library.sources.get(position));
             return true;
         });
@@ -270,7 +292,7 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         status.setEllipsize(TextUtils.TruncateAt.END);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         statusRow.addView(status, new LinearLayout.LayoutParams(0, WRAP, 1));
-        statusAction = button(getString(R.string.close), this::statusAction);
+        statusAction = button(R.drawable.ic_close, R.string.close, this::statusAction);
         LinearLayout.LayoutParams statusPosition = new LinearLayout.LayoutParams(WRAP, WRAP);
         statusPosition.leftMargin = dp(8);
         statusRow.addView(statusAction, statusPosition);
@@ -293,40 +315,44 @@ public final class MainActivity extends Activity implements DownloadService.Obse
 
     private void render() {
         Screen screen = screen();
-        back.setVisibility(screen == null && !managing ? View.GONE : View.VISIBLE);
-        manage.setVisibility(screen == null && !managing && !library.sources.isEmpty() ? View.VISIBLE : View.GONE);
+        boolean home = screen == null && !managing && !settings;
+        back.setVisibility(home ? View.GONE : View.VISIBLE);
+        manage.setVisibility(home && !library.sources.isEmpty() ? View.VISIBLE : View.GONE);
+        settingsButton.setVisibility(home ? View.VISIBLE : View.GONE);
         actions.removeAllViews();
         String information = null;
-        if (screen == null) {
+        if (settings) {
+            title.setText(R.string.settings);
+        } else if (screen == null) {
             title.setText(managing ? R.string.manage_catalogs : R.string.app_name);
             if (library.sources.isEmpty()) information = getString(R.string.catalog_intro);
-            action(getString(R.string.add_catalog), () -> editSource(null));
-            if (!managing) action(getString(R.string.download_folder), this::downloadFolder);
+            action(R.drawable.ic_add, R.string.add_catalog, () -> editSource(null));
+            if (!managing) action(R.drawable.ic_folder, R.string.download_folder, this::downloadFolder);
         } else if (book != null) {
             title.setText(entryTitle(book));
-            action(getString(R.string.download_folder), this::downloadFolder);
+            action(R.drawable.ic_folder, R.string.download_folder, this::downloadFolder);
         } else {
             title.setText(catalogTitle(screen));
             if (request != null) {
                 information = getString(R.string.catalog_loading);
             } else if (loadError != null) {
                 information = loadError.text(this);
-                action(getString(R.string.retry), () -> load(true));
+                action(R.drawable.ic_refresh, R.string.retry, () -> load(true));
             } else if (page != null) {
                 if (page.entries.isEmpty()) information = getString(R.string.catalog_empty);
-                if (page.search != null) action(getString(R.string.search), () -> search(page.search));
+                if (page.search != null) action(R.drawable.ic_search, R.string.search, () -> search(page.search));
                 if (page.next != null && !page.next.equals(screen.address)) {
-                    action(getString(R.string.next_page), () -> enter(new Screen(page.next, page.title.isEmpty() ? screen.title : page.title)));
+                    action(R.drawable.ic_next, R.string.next_page, () -> enter(new Screen(page.next, page.title.isEmpty() ? screen.title : page.title)));
                 }
-                action(getString(R.string.refresh), () -> {
+                action(R.drawable.ic_refresh, R.string.refresh, () -> {
                     rememberPosition();
                     load(true);
                 });
             }
         }
 
-        boolean hasRows = screen == null ? !library.sources.isEmpty()
-                : book != null || page != null && !page.entries.isEmpty();
+        boolean hasRows = settings || (screen == null ? !library.sources.isEmpty()
+                : book != null || page != null && !page.entries.isEmpty());
         list.setVisibility(hasRows ? View.VISIBLE : View.GONE);
         list.setAdapter(hasRows ? new Rows() : null);
         empty.setText(information == null ? "" : information);
@@ -352,7 +378,10 @@ public final class MainActivity extends Activity implements DownloadService.Obse
     }
 
     private void select(int position) {
-        if (screen() == null) {
+        if (settings) {
+            if (position == 0) editProxy();
+            else chooseLanguage();
+        } else if (screen() == null) {
             LibraryStore.Source item = library.sources.get(position);
             if (managing) editSource(item);
             else open(item);
@@ -374,12 +403,14 @@ public final class MainActivity extends Activity implements DownloadService.Obse
 
     private final class Rows extends BaseAdapter {
         @Override public int getCount() {
+            if (settings) return 2;
             if (screen() == null) return library.sources.size();
             if (book != null) return book.downloads.size();
             return page == null ? 0 : page.entries.size();
         }
 
         @Override public Object getItem(int position) {
+            if (settings) return position == 0 ? proxy : AppLanguage.selected(MainActivity.this);
             if (screen() == null) return library.sources.get(position);
             if (book != null) return book.downloads.get(position);
             return page.entries.get(position);
@@ -392,14 +423,21 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         @Override public View getView(int position, View convert, ViewGroup parent) {
             ItemView item = convert == null ? new ItemView() : (ItemView) convert;
             Object row = getItem(position);
-            if (row instanceof LibraryStore.Source) {
+            if (row instanceof NetworkProxy) {
+                item.set(getString(R.string.network_proxy), proxy.summary(MainActivity.this), R.drawable.ic_next, null);
+            } else if (row instanceof AppLanguage) {
+                item.set(getString(R.string.language), getString(((AppLanguage) row).label), R.drawable.ic_next, null);
+            } else if (row instanceof LibraryStore.Source) {
                 LibraryStore.Source source = (LibraryStore.Source) row;
                 item.set(source.name, source.address);
             } else if (row instanceof FeedReader.Link) {
                 FeedReader.Link link = (FeedReader.Link) row;
                 String format = BookFiles.label(link, MainActivity.this);
-                String label = getString(link.isSample() ? R.string.download_sample : R.string.download_format, format);
-                item.set(label, format.equalsIgnoreCase(link.title) ? "" : link.title);
+                String label = link.isSample() ? getString(R.string.sample_format, format) : format;
+                String detail = format.equalsIgnoreCase(link.title) ? "" : link.title;
+                String description = getString(link.isSample() ? R.string.download_sample : R.string.download_format, format);
+                item.set(label, detail, R.drawable.ic_download,
+                        detail.isEmpty() ? description : description + " · " + detail);
             } else {
                 FeedReader.Entry entry = (FeedReader.Entry) row;
                 String detail = entry.author;
@@ -432,6 +470,7 @@ public final class MainActivity extends Activity implements DownloadService.Obse
             setGravity(Gravity.CENTER_VERTICAL);
             setPadding(dp(16), dp(9), dp(16), dp(9));
             primary = text("", 18);
+            primary.setCompoundDrawablePadding(dp(12));
             primary.setMaxLines(2);
             primary.setEllipsize(TextUtils.TruncateAt.END);
             addView(primary, new LayoutParams(MATCH, WRAP));
@@ -444,9 +483,15 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         }
 
         void set(String label, String detail) {
+            set(label, detail, 0, null);
+        }
+
+        void set(String label, String detail, int drawable, String description) {
             primary.setText(label);
             secondary.setText(detail);
             secondary.setVisibility(detail.isEmpty() ? GONE : VISIBLE);
+            primary.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, drawable, 0);
+            setContentDescription(description);
         }
     }
 
@@ -489,7 +534,7 @@ public final class MainActivity extends Activity implements DownloadService.Obse
             return;
         }
         if (reload) cache.remove(key);
-        Http.Call call = new Http.Call();
+        Http.Call call = new Http.Call(proxy.forConnection());
         request = call;
         render();
         Locale locale = catalogLocale();
@@ -527,8 +572,9 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         if (book != null) {
             book = null;
             render();
-        } else if (managing) {
+        } else if (managing || settings) {
             managing = false;
+            settings = false;
             render();
         } else if (screen() != null) {
             cancelRequest();
@@ -569,6 +615,75 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         list.setSelectionFromTop(Math.max(0, Math.min(list.getCount() - 1, target)), 0);
     }
 
+    private void editProxy() {
+        Form form = new Form(getString(R.string.network_proxy));
+        NetworkProxy.Mode[] modes = NetworkProxy.Mode.values();
+        int[] labels = new int[modes.length];
+        for (int i = 0; i < modes.length; i++) labels[i] = modes[i].label;
+        RadioGroup choices = form.choices(labels, proxy.mode.ordinal());
+
+        LinearLayout endpoint = column();
+        form.content.addView(endpoint, new LinearLayout.LayoutParams(MATCH, WRAP));
+        EditText host = form.field(endpoint, getString(R.string.proxy_host), proxy.host,
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI, 253);
+        EditText port = form.field(endpoint, getString(R.string.proxy_port), proxy.port == 0 ? "" : Integer.toString(proxy.port),
+                InputType.TYPE_CLASS_NUMBER, 5);
+        endpoint.setVisibility(proxy.mode.usesEndpoint() ? View.VISIBLE : View.GONE);
+        choices.setOnCheckedChangeListener((group, id) ->
+                endpoint.setVisibility(modes[choiceIndex(group)].usesEndpoint() ? View.VISIBLE : View.GONE));
+
+        form.button(R.drawable.ic_close, R.string.cancel, form.dialog::dismiss);
+        form.button(R.drawable.ic_save, R.string.save, () -> {
+            NetworkProxy.Mode mode = modes[choiceIndex(choices)];
+            String address = proxy.host;
+            int number = proxy.port;
+            if (mode.usesEndpoint()) {
+                try {
+                    address = NetworkProxy.parseHost(host.getText().toString());
+                } catch (IllegalArgumentException failure) {
+                    form.error(getString(R.string.error_proxy_host), host);
+                    return;
+                }
+                try {
+                    number = NetworkProxy.parsePort(port.getText().toString());
+                } catch (IllegalArgumentException failure) {
+                    form.error(getString(R.string.error_proxy_port), port);
+                    return;
+                }
+            }
+
+            proxy = new NetworkProxy(mode, address, number);
+            proxy.save(this);
+            cache.evictAll();
+            form.dialog.dismiss();
+            render();
+        });
+        form.show(false);
+    }
+
+    private void chooseLanguage() {
+        Form form = new Form(getString(R.string.language));
+        AppLanguage current = AppLanguage.selected(this);
+        AppLanguage[] languages = AppLanguage.values();
+        int[] labels = new int[languages.length];
+        for (int i = 0; i < languages.length; i++) labels[i] = languages[i].label;
+        RadioGroup choices = form.choices(labels, current.ordinal());
+        form.button(R.drawable.ic_close, R.string.cancel, form.dialog::dismiss);
+        form.button(R.drawable.ic_save, R.string.save, () -> {
+            AppLanguage selected = languages[choiceIndex(choices)];
+            form.dialog.dismiss();
+            if (selected == current) return;
+            selected.select(this);
+            if (Build.VERSION.SDK_INT < 33) recreate();
+            else render();
+        });
+        form.show(false);
+    }
+
+    private int choiceIndex(RadioGroup choices) {
+        return choices.indexOfChild(choices.findViewById(choices.getCheckedRadioButtonId()));
+    }
+
     private void editSource(LibraryStore.Source original) {
         Form form = new Form(getString(original == null ? R.string.add_catalog : R.string.edit_catalog));
         EditText name = form.field(getString(R.string.catalog_name), original == null ? "" : original.name,
@@ -581,13 +696,13 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         EditText password = form.field(getString(R.string.password), original == null ? "" : original.password,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, 512);
         if (original != null) {
-            form.button(getString(R.string.delete), () -> {
+            form.button(R.drawable.ic_delete, R.string.delete, () -> {
                 form.dialog.dismiss();
                 confirmDelete(original);
             });
         }
-        form.button(getString(R.string.cancel), form.dialog::dismiss);
-        form.button(getString(R.string.save), () -> {
+        form.button(R.drawable.ic_close, R.string.cancel, form.dialog::dismiss);
+        form.button(R.drawable.ic_save, R.string.save, () -> {
             URL validated;
             try {
                 validated = Http.address(address.getText().toString().trim());
@@ -618,8 +733,8 @@ public final class MainActivity extends Activity implements DownloadService.Obse
     private void confirmDelete(LibraryStore.Source item) {
         Form form = new Form(getString(R.string.remove_catalog));
         form.paragraph(getString(R.string.remove_catalog_prompt, item.name));
-        form.button(getString(R.string.cancel), form.dialog::dismiss);
-        form.button(getString(R.string.delete), () -> {
+        form.button(R.drawable.ic_close, R.string.cancel, form.dialog::dismiss);
+        form.button(R.drawable.ic_delete, R.string.delete, () -> {
             library.remove(item);
             cache.evictAll();
             form.dialog.dismiss();
@@ -647,8 +762,8 @@ public final class MainActivity extends Activity implements DownloadService.Obse
             if (event == null || event.getAction() == KeyEvent.ACTION_UP) submit.run();
             return true;
         });
-        form.button(getString(R.string.cancel), form.dialog::dismiss);
-        form.button(getString(R.string.search), submit);
+        form.button(R.drawable.ic_close, R.string.cancel, form.dialog::dismiss);
+        form.button(R.drawable.ic_search, R.string.search, submit);
         form.show(true);
     }
 
@@ -656,9 +771,9 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         Form form = new Form(getString(R.string.download_folder));
         Uri directory = library.folder();
         form.paragraph(directory == null ? getString(R.string.folder_not_set) : folderLabel(directory));
-        form.button(getString(R.string.back), form.dialog::dismiss);
+        form.button(R.drawable.ic_back, R.string.back, form.dialog::dismiss);
         if (!DownloadService.isRunning()) {
-            form.button(getString(R.string.choose_folder), () -> {
+            form.button(R.drawable.ic_folder_open, R.string.choose_folder, () -> {
                 form.dialog.dismiss();
                 pickDirectory();
             });
@@ -743,7 +858,8 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         PendingBook selected = pending;
         pending = null;
         notice = "";
-        DownloadService.start(this, new DownloadService.Job(directory, selected.source, selected.link, selected.title));
+        DownloadService.start(this, new DownloadService.Job(
+                directory, selected.source, selected.link, selected.title, proxy.forConnection()));
     }
 
     private void notice(String message) {
@@ -769,7 +885,7 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         int visible = shown.isEmpty() ? View.GONE : View.VISIBLE;
         if (statusPanel.getVisibility() != visible) statusPanel.setVisibility(visible);
         if (running != statusRunning) {
-            statusAction.setText(running ? R.string.cancel_download : R.string.close);
+            setIcon(statusAction, R.drawable.ic_close, running ? R.string.cancel_download : R.string.close);
             statusRunning = running;
         }
         statusAction.setEnabled(!DownloadService.isCancelling());
@@ -806,6 +922,10 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         }
 
         EditText field(String label, String initial, int inputType, int maxLength) {
+            return field(content, label, initial, inputType, maxLength);
+        }
+
+        EditText field(LinearLayout section, String label, String initial, int inputType, int maxLength) {
             EditText field = new EditText(MainActivity.this);
             field.setId(View.generateViewId());
             field.setSingleLine(true);
@@ -826,8 +946,8 @@ public final class MainActivity extends Activity implements DownloadService.Obse
             TextView caption = text(label, 15);
             caption.setLabelFor(field.getId());
             caption.setPadding(0, dp(11), 0, dp(4));
-            content.addView(caption, new LinearLayout.LayoutParams(MATCH, WRAP));
-            content.addView(field, new LinearLayout.LayoutParams(MATCH, WRAP));
+            section.addView(caption, new LinearLayout.LayoutParams(MATCH, WRAP));
+            section.addView(field, new LinearLayout.LayoutParams(MATCH, WRAP));
             if (first == null) first = field;
             return field;
         }
@@ -844,8 +964,27 @@ public final class MainActivity extends Activity implements DownloadService.Obse
             field.requestFocus();
         }
 
-        void button(String label, Runnable click) {
-            addButton(controls, label, click);
+        RadioGroup choices(int[] labels, int selected) {
+            RadioGroup choices = new RadioGroup(MainActivity.this);
+            choices.setOrientation(RadioGroup.VERTICAL);
+            choices.setPadding(0, dp(8), 0, 0);
+            for (int label : labels) {
+                RadioButton option = new RadioButton(MainActivity.this);
+                option.setId(View.generateViewId());
+                option.setText(label);
+                option.setTextColor(Color.BLACK);
+                option.setButtonTintList(ColorStateList.valueOf(Color.BLACK));
+                option.setMinimumHeight(dp(48));
+                option.setBackground(outlineStates(false));
+                choices.addView(option, new RadioGroup.LayoutParams(MATCH, WRAP));
+            }
+            choices.check(choices.getChildAt(selected).getId());
+            content.addView(choices, new LinearLayout.LayoutParams(MATCH, WRAP));
+            return choices;
+        }
+
+        void button(int icon, int label, Runnable click) {
+            addButton(controls, icon, label, click);
         }
 
         void show(boolean keyboard) {
@@ -870,33 +1009,36 @@ public final class MainActivity extends Activity implements DownloadService.Obse
         return Math.min(dp(440), getResources().getDisplayMetrics().widthPixels - dp(24));
     }
 
-    private void action(String label, Runnable click) {
-        addButton(actions, label, click);
+    private void action(int icon, int label, Runnable click) {
+        addButton(actions, icon, label, click);
     }
 
-    private void addButton(LinearLayout bar, String label, Runnable click) {
+    private void addButton(LinearLayout bar, int icon, int label, Runnable click) {
         LinearLayout.LayoutParams placement = new LinearLayout.LayoutParams(0, WRAP, 1);
         if (bar.getChildCount() != 0) placement.leftMargin = dp(8);
-        bar.addView(button(label, click), placement);
+        bar.addView(button(icon, label, click), placement);
     }
 
-    private Button button(String label, Runnable click) {
-        Button button = new Button(this);
-        button.setText(label);
-        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        button.setTextColor(ColorStateList.valueOf(Color.BLACK));
-        button.setTypeface(Typeface.DEFAULT);
-        button.setAllCaps(false);
-        button.setMinWidth(0);
-        button.setMinimumWidth(0);
-        button.setMinHeight(dp(48));
+    private ImageButton button(int icon, int label, Runnable click) {
+        ImageButton button = new ImageButton(this);
+        button.setMinimumWidth(dp(48));
         button.setMinimumHeight(dp(48));
-        button.setPadding(dp(8), dp(5), dp(8), dp(5));
+        button.setPadding(dp(8), dp(8), dp(8), dp(8));
+        button.setScaleType(ImageView.ScaleType.CENTER);
         button.setStateListAnimator(null);
         button.setBackgroundTintList(null);
         button.setBackground(outlineStates(true));
+        button.setFocusable(true);
+        setIcon(button, icon, label);
         button.setOnClickListener(view -> click.run());
         return button;
+    }
+
+    private void setIcon(ImageButton button, int icon, int label) {
+        button.setImageResource(icon);
+        String description = getString(label);
+        button.setContentDescription(description);
+        if (Build.VERSION.SDK_INT >= 26) button.setTooltipText(description);
     }
 
     private StateListDrawable outlineStates(boolean filled) {

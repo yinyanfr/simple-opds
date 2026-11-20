@@ -88,4 +88,19 @@
     <string name="error_file_create">无法在下载目录创建文件。</string>
     <string name="error_file_rename">下载目录拒绝保存最终文件名。</string>
     <string name="error_previous_cleanup">无法清理上次下载的临时文件，请重新选择目录。</string>
+
+    <string name="settings">设置</string>
+    <string name="language">应用语言</string>
+    <string name="language_system">跟随系统</string>
+    <string name="network_proxy">网络代理</string>
+    <string name="proxy_system">跟随系统代理</string>
+    <string name="proxy_direct">直接连接</string>
+    <string name="proxy_http">HTTP 代理</string>
+    <string name="proxy_socks">SOCKS 代理</string>
+    <string name="proxy_host">代理主机</string>
+    <string name="proxy_port">代理端口</string>
+    <string name="error_proxy_host">请输入主机名或 IP 地址，省略协议和端口。</string>
+    <string name="error_proxy_port">请输入 1 到 65535 之间的端口号。</string>
+    <string name="error_proxy_auth_required">代理服务器要求认证（HTTP 407）。</string>
+    <string name="sample_format">%1$s 试读</string>
 </resources>
